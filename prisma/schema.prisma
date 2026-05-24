@@ -1,0 +1,409 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  COLLECTOR
+}
+
+enum WaterSource {
+  PUBLIC_NETWORK
+  INDOOR_TANK
+  OUTDOOR_TANK
+  HAFIR
+  WELL
+  OTHER
+}
+
+enum ToiletType {
+  NONE
+  BASIC_PIT
+  IMPROVED_PIT
+  SIPHON
+  OTHER
+}
+
+enum LivestockType {
+  CATTLE
+  SHEEP
+  GOATS
+  CAMELS
+  OTHER
+}
+
+enum PoultryType {
+  CHICKEN
+  PIGEON
+  OTHER
+}
+
+enum ChronicCondition {
+  DIABETES
+  HYPERTENSION
+  ASTHMA
+  HEADACHE
+  KIDNEY
+  OTHER
+}
+
+enum DisabilityType {
+  MOTOR
+  VISUAL
+  HEARING
+  MENTAL
+  OTHER
+}
+
+enum InsuranceProvider {
+  GOVERNMENT
+  REGULAR_FORCES
+  ZAKAT
+  FEDERAL_FINANCE
+  STATE_FINANCE
+  COMPANIES
+  SELF
+}
+
+enum MigrationTiming {
+  BEFORE_WAR
+  AFTER_WAR
+}
+
+enum HomeStatus {
+  OWNED
+  RENTED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  username     String    @unique
+  passwordHash String
+  role         Role      @default(COLLECTOR)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  households           Household[]
+  issuedCertificates   ResidenceCertificate[]
+}
+
+model Locality {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  villages  Village[]
+}
+
+model Village {
+  id         String     @id @default(cuid())
+  name       String
+  localityId String
+  createdAt  DateTime   @default(now())
+
+  locality   Locality   @relation(fields: [localityId], references: [id], onDelete: Cascade)
+  households Household[]
+
+  @@unique([name, localityId])
+}
+
+model Household {
+  id               String   @id @default(cuid())
+  headOfFamilyName String
+  address          String?
+  geoLat           Float?
+  geoLng           Float?
+  surveyDate       DateTime @default(now())
+  villageId        String
+  collectedById    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  village      Village  @relation(fields: [villageId], references: [id])
+  collectedBy  User     @relation(fields: [collectedById], references: [id])
+
+  demographicInfo      DemographicInfo?
+  educationInfo        EducationInfo?
+  waterInfo            WaterInfo?
+  housingInfo          HousingInfo?
+  agricultureInfo      AgricultureInfo?
+  livestockInfo        LivestockInfo?
+  childHealthInfo      ChildHealthInfo?
+  vaccinationInfo      VaccinationInfo?
+  reproductiveHealth   ReproductiveHealthInfo?
+  developmentalAssets  DevelopmentalAssets?
+  generalInfo          GeneralInfo?
+  certificate          ResidenceCertificate?
+}
+
+model DemographicInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  totalPopulationMale         Int @default(0)
+  totalPopulationFemale       Int @default(0)
+  householdCount              Int @default(0)
+  children0to6mMale           Int @default(0)
+  children0to6mFemale         Int @default(0)
+  children0to12mMale          Int @default(0)
+  children0to12mFemale        Int @default(0)
+  childrenUnder5Male          Int @default(0)
+  childrenUnder5Female        Int @default(0)
+  children6to14Male           Int @default(0)
+  children6to14Female         Int @default(0)
+  population15plusMale        Int @default(0)
+  population15plusFemale      Int @default(0)
+  womenReproductive15to49     Int @default(0)
+  elderlyOver70Male           Int @default(0)
+  elderlyOver70Female         Int @default(0)
+  marriedWomen                Int @default(0)
+  divorcedWidowedWomen        Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model EducationInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  children4to6                    Int @default(0)
+  children4to6Enrolled            Int @default(0)
+  children4to6NotEnrolled         Int @default(0)
+  dropoutsLastYear                Int @default(0)
+  completedBasicMale              Int @default(0)
+  completedBasicFemale            Int @default(0)
+  completedSecondaryMale          Int @default(0)
+  completedSecondaryFemale        Int @default(0)
+  completedUniversityMale         Int @default(0)
+  completedUniversityFemale       Int @default(0)
+  completedPostGradMale           Int @default(0)
+  completedPostGradFemale         Int @default(0)
+  illiterateMale                  Int @default(0)
+  illiterateFemale                Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model WaterInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  publicNetwork     Int @default(0)
+  indoorTank        Int @default(0)
+  outdoorTank       Int @default(0)
+  hafir             Int @default(0)
+  well              Int @default(0)
+  otherSource       Int @default(0)
+  otherSourceDesc   String?
+  hasEnoughWater    Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model HousingInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  sleepingRooms             Int @default(0)
+  ventilationOpenings       Int @default(0)
+  separateKitchenCount      Int @default(0)
+  noToilet                  Int @default(0)
+  basicPitToilet            Int @default(0)
+  improvedPitToilet         Int @default(0)
+  siphonToilet              Int @default(0)
+  otherToilet               Int @default(0)
+  properWasteDisposal       Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model AgricultureInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  ownsAgriculturalLand    Int @default(0)
+  cultivatesLand          Int @default(0)
+  pumpIrrigation          Int @default(0)
+  solarIrrigation         Int @default(0)
+  usesTechnicalExperts    Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model LivestockInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  raisesLivestock           Int @default(0)
+  cattle                    Int @default(0)
+  sheep                     Int @default(0)
+  goats                     Int @default(0)
+  camels                    Int @default(0)
+  otherLivestock            Int @default(0)
+  separateLivestockBarns    Int @default(0)
+  raisesPoultry             Int @default(0)
+  chicken                   Int @default(0)
+  pigeon                    Int @default(0)
+  otherPoultry              Int @default(0)
+  separatePoultryHousing    Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model ChildHealthInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  birthsLastYearMale            Int @default(0)
+  birthsLastYearFemale          Int @default(0)
+  liveBirthsMale                Int @default(0)
+  liveBirthsFemale              Int @default(0)
+  stillBirthsMale               Int @default(0)
+  stillBirthsFemale             Int @default(0)
+  birthsWithDefectsMale         Int @default(0)
+  birthsWithDefectsFemale       Int @default(0)
+
+  under5IllLast2WeeksMale       Int @default(0)
+  under5IllLast2WeeksFemale     Int @default(0)
+  under5PneumoniaLast2WeeksMale    Int @default(0)
+  under5PneumoniaLast2WeeksFemale  Int @default(0)
+  under5DiarrheaLast2WeeksMale     Int @default(0)
+  under5DiarrheaLast2WeeksFemale   Int @default(0)
+  under5FeverLast2WeeksMale        Int @default(0)
+  under5FeverLast2WeeksFemale      Int @default(0)
+
+  infant0to12mDeathsMale        Int @default(0)
+  infant0to12mDeathsFemale      Int @default(0)
+  infantTetanusDeathsMale       Int @default(0)
+  infantTetanusDeathsFemale     Int @default(0)
+  infantPneumoniaDeathsMale     Int @default(0)
+  infantPneumoniaDeathsFemale   Int @default(0)
+  infantDiarrheaDeathsMale      Int @default(0)
+  infantDiarrheaDeathsFemale    Int @default(0)
+  infantFeverDeathsMale         Int @default(0)
+  infantFeverDeathsFemale       Int @default(0)
+  infantOtherDeathsMale         Int @default(0)
+  infantOtherDeathsFemale       Int @default(0)
+
+  under5DeathsMale              Int @default(0)
+  under5DeathsFemale            Int @default(0)
+  under5PneumoniaDeathsMale     Int @default(0)
+  under5PneumoniaDeathsFemale   Int @default(0)
+  under5DiarrheaDeathsMale      Int @default(0)
+  under5DiarrheaDeathsFemale    Int @default(0)
+  under5FeverDeathsMale         Int @default(0)
+  under5FeverDeathsFemale       Int @default(0)
+  under5OtherDeathsMale         Int @default(0)
+  under5OtherDeathsFemale       Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model VaccinationInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  infant0to1HasCard             Int @default(0)
+  infant0to1Penta1              Int @default(0)
+  infant0to1Penta2              Int @default(0)
+  infant0to1Penta3              Int @default(0)
+  infant0to1BCG                 Int @default(0)
+  infant0to1Measles             Int @default(0)
+
+  child1to5HasCard              Int @default(0)
+  child1to5Penta1               Int @default(0)
+  child1to5Penta2               Int @default(0)
+  child1to5Penta3               Int @default(0)
+  child1to5BCG                  Int @default(0)
+  child1to5Measles              Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model ReproductiveHealthInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  pregnantCount                 Int @default(0)
+  pregnantTrimester1            Int @default(0)
+  pregnantTrimester2            Int @default(0)
+  pregnantTrimester3            Int @default(0)
+  pregnantFollowedByHealthWorker Int @default(0)
+  pregnantTetanusTotal          Int @default(0)
+  pregnantTetanusDose1          Int @default(0)
+  pregnantTetanusDose2          Int @default(0)
+  pregnantTetanusDose3          Int @default(0)
+  birthSpacingUnder1Year        Int @default(0)
+  birthSpacing1to2Years         Int @default(0)
+  birthSpacingOver2Years        Int @default(0)
+  deliveriesLastYear            Int @default(0)
+  deliveriesByTrainedStaff      Int @default(0)
+  deliveriesByUntrainedStaff    Int @default(0)
+  postnatalVisitsByTrainedStaff Int @default(0)
+  maternalDeathsPregnancy       Int @default(0)
+  maternalDeathsBirth           Int @default(0)
+  maternalDeathsPostpartum      Int @default(0)
+  familyPlanningUsers           Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model DevelopmentalAssets {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  incomeProject   Int @default(0)
+  canteen         Int @default(0)
+  livestock       Int @default(0)
+  mill            Int @default(0)
+  oven            Int @default(0)
+  poultry         Int @default(0)
+  cart            Int @default(0)
+  farm            Int @default(0)
+  vehicle         Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model GeneralInfo {
+  id          String  @id @default(cuid())
+  householdId String  @unique
+
+  isMigrant              Boolean  @default(false)
+  migrationTiming        MigrationTiming?
+  homeStatus             HomeStatus?
+  hasChronicCondition    Boolean  @default(false)
+  chronicConditions      ChronicCondition[]
+  chronicOtherDesc       String?
+  hasDisability          Boolean  @default(false)
+  disabilities           DisabilityType[]
+  disabilityOtherDesc    String?
+  hasCancer              Boolean  @default(false)
+  hasHealthInsurance     Boolean  @default(false)
+  insuranceProvider      InsuranceProvider?
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model ResidenceCertificate {
+  id                String   @id @default(cuid())
+  householdId       String   @unique
+  certificateNumber String   @unique @default(cuid())
+  issuedDate        DateTime @default(now())
+  committeeArea     String?
+  boundaryNorth     String?
+  boundarySouth     String?
+  boundaryEast      String?
+  boundaryWest      String?
+  areaSqm           Float?
+  issuedById        String
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  issuedBy  User      @relation(fields: [issuedById], references: [id])
+}
