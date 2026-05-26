@@ -13,7 +13,7 @@ const localitySchema = z.object({
 router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const localities = await prisma.locality.findMany({
-      include: { villages: true },
+      include: { adminUnits: true },
       orderBy: { name: 'asc' },
     });
     res.json(localities);

@@ -27,7 +27,16 @@ router.post('/:id/certificate', async (req: Request, res: Response, next: NextFu
 
     const household = await prisma.household.findFirst({
       where,
-      include: { village: { include: { locality: true } }, certificate: true },
+      include: {
+        neighborhood: {
+          include: {
+            village: {
+              include: { administrativeUnit: { include: { locality: true } } },
+            },
+          },
+        },
+        certificate: true,
+      },
     });
 
     if (!household) {
@@ -74,7 +83,15 @@ router.get('/:id/certificate.pdf', async (req: Request, res: Response, next: Nex
     const household = await prisma.household.findFirst({
       where,
       include: {
-        village: { include: { locality: true } },
+        neighborhood: {
+          include: {
+            village: {
+              include: {
+                administrativeUnit: { include: { locality: true } },
+              },
+            },
+          },
+        },
         certificate: true,
       },
     });
@@ -90,11 +107,13 @@ router.get('/:id/certificate.pdf', async (req: Request, res: Response, next: Nex
     }
 
     const cert = household.certificate;
+    const village = household.neighborhood.village;
+    const locality = village.administrativeUnit.locality;
     const html = generateCertificateHtml({
-      committeeArea: cert.committeeArea || household.village.name,
+      committeeArea: cert.committeeArea || village.name,
       headOfFamilyName: household.headOfFamilyName,
-      village: household.village.name,
-      locality: household.village.locality.name,
+      village: village.name,
+      locality: locality.name,
       boundaryNorth: cert.boundaryNorth || '',
       boundarySouth: cert.boundarySouth || '',
       boundaryEast: cert.boundaryEast || '',
@@ -123,7 +142,7 @@ router.get('/:id/certificate.pdf', async (req: Request, res: Response, next: Nex
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="certificate-${household.headOfFamilyName}.pdf"`
+      `inline; filename="certificate-${household.headOfFamilyName}.pdf"`
     );
     res.send(pdfBuffer);
   } catch (err) {

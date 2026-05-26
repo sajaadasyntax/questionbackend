@@ -6,6 +6,10 @@ export interface JwtPayload {
   userId: string;
   role: Role;
   username: string;
+  scopeLocalityId?: string;
+  scopeAdminUnitId?: string;
+  scopeVillageId?: string;
+  scopeNeighborhoodId?: string;
 }
 
 declare global {

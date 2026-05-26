@@ -7,10 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Roles ───────────────────────────────────────────────────────────────────
+
 enum Role {
   ADMIN
   COLLECTOR
+  NEIGHBORHOOD_MANAGER
+  VILLAGE_MANAGER
+  ADMIN_UNIT_MANAGER
+  LOCALITY_MANAGER
 }
+
+// ─── Survey enums ─────────────────────────────────────────────────────────────
 
 enum WaterSource {
   PUBLIC_NETWORK
@@ -27,6 +35,57 @@ enum ToiletType {
   IMPROVED_PIT
   SIPHON
   OTHER
+}
+
+enum HousingType {
+  APARTMENT
+  ROOFED_HOUSE
+  RED_BRICK
+  GREEN_BRICK_OR_MUD
+  OTHER
+}
+
+enum OwnershipType {
+  PURCHASE
+  INHERITANCE
+  RENT
+  SHARED_INHERITANCE
+}
+
+enum OwnershipProof {
+  SEARCH_CERTIFICATE
+  POSSESSION_CERTIFICATE
+  NONE
+}
+
+enum VehicleType {
+  KARO
+  RAQSHA
+  MOTOR
+  MOTOR_WHEEL
+  TUKTUK
+  SMALL_SALOON
+  STATION
+  SINGLE_PICKUP
+  DOUBLE_PICKUP
+  DAFAR
+  LORRY
+  TRUCK
+  TRACTOR
+  AGRI_TRACTOR
+  LOADER
+  EXCAVATOR
+}
+
+enum OtherPropertyLocation {
+  INSIDE_VILLAGE
+  OUTSIDE_VILLAGE
+}
+
+enum OtherPropertyKind {
+  RESIDENTIAL_SHOP
+  RESIDENTIAL_HOUSE
+  COMMERCIAL_OTHER
 }
 
 enum LivestockType {
@@ -80,38 +139,72 @@ enum HomeStatus {
   RENTED
 }
 
-model User {
-  id           String    @id @default(cuid())
-  name         String
-  username     String    @unique
-  passwordHash String
-  role         Role      @default(COLLECTOR)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+// ─── Administrative hierarchy ─────────────────────────────────────────────────
 
-  households           Household[]
-  issuedCertificates   ResidenceCertificate[]
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(COLLECTOR)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // scope – at most one of these is set, matching the role level
+  scopeLocalityId   String?
+  scopeAdminUnitId  String?
+  scopeVillageId    String?
+  scopeNeighborhoodId String?
+
+  households         Household[]
+  issuedCertificates ResidenceCertificate[]
 }
 
 model Locality {
-  id        String    @id @default(cuid())
-  name      String    @unique
-  createdAt DateTime  @default(now())
-  villages  Village[]
+  id        String              @id @default(cuid())
+  name      String              @unique
+  createdAt DateTime            @default(now())
+  adminUnits AdministrativeUnit[]
 }
 
-model Village {
-  id         String     @id @default(cuid())
+model AdministrativeUnit {
+  id         String    @id @default(cuid())
   name       String
   localityId String
-  createdAt  DateTime   @default(now())
+  createdAt  DateTime  @default(now())
 
-  locality   Locality   @relation(fields: [localityId], references: [id], onDelete: Cascade)
-  households Household[]
+  locality   Locality  @relation(fields: [localityId], references: [id], onDelete: Cascade)
+  villages   Village[]
 
   @@unique([name, localityId])
 }
+
+model Village {
+  id                   String             @id @default(cuid())
+  name                 String
+  administrativeUnitId String
+  createdAt            DateTime           @default(now())
+
+  administrativeUnit   AdministrativeUnit @relation(fields: [administrativeUnitId], references: [id], onDelete: Cascade)
+  neighborhoods        Neighborhood[]
+
+  @@unique([name, administrativeUnitId])
+}
+
+model Neighborhood {
+  id        String      @id @default(cuid())
+  name      String
+  villageId String
+  createdAt DateTime    @default(now())
+
+  village    Village     @relation(fields: [villageId], references: [id], onDelete: Cascade)
+  households Household[]
+
+  @@unique([name, villageId])
+}
+
+// ─── Household ────────────────────────────────────────────────────────────────
 
 model Household {
   id               String   @id @default(cuid())
@@ -120,32 +213,37 @@ model Household {
   geoLat           Float?
   geoLng           Float?
   surveyDate       DateTime @default(now())
-  villageId        String
+  neighborhoodId   String
   collectedById    String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  village      Village  @relation(fields: [villageId], references: [id])
-  collectedBy  User     @relation(fields: [collectedById], references: [id])
+  neighborhood  Neighborhood @relation(fields: [neighborhoodId], references: [id])
+  collectedBy   User         @relation(fields: [collectedById], references: [id])
 
   demographicInfo      DemographicInfo?
   educationInfo        EducationInfo?
   waterInfo            WaterInfo?
   housingInfo          HousingInfo?
+  headOfFamilyInfo     HeadOfFamilyInfo?
   agricultureInfo      AgricultureInfo?
   livestockInfo        LivestockInfo?
   childHealthInfo      ChildHealthInfo?
   vaccinationInfo      VaccinationInfo?
   reproductiveHealth   ReproductiveHealthInfo?
   developmentalAssets  DevelopmentalAssets?
+  vehicles             HouseholdVehicle[]
   generalInfo          GeneralInfo?
   certificate          ResidenceCertificate?
 }
+
+// ─── Survey tables ────────────────────────────────────────────────────────────
 
 model DemographicInfo {
   id          String @id @default(cuid())
   householdId String @unique
 
+  totalFamilyMembers          Int @default(0)
   totalPopulationMale         Int @default(0)
   totalPopulationFemale       Int @default(0)
   householdCount              Int @default(0)
@@ -210,6 +308,12 @@ model HousingInfo {
   id          String @id @default(cuid())
   householdId String @unique
 
+  housingType               HousingType?
+  numberOfRooms             Int @default(0)
+  roofType                  String?
+  ownershipType             OwnershipType?
+  ownershipProof            OwnershipProof?
+
   sleepingRooms             Int @default(0)
   ventilationOpenings       Int @default(0)
   separateKitchenCount      Int @default(0)
@@ -219,6 +323,29 @@ model HousingInfo {
   siphonToilet              Int @default(0)
   otherToilet               Int @default(0)
   properWasteDisposal       Int @default(0)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model HeadOfFamilyInfo {
+  id          String @id @default(cuid())
+  householdId String @unique
+
+  age                    Int?
+  profession             String?
+  income                 Float?
+  ownsOtherProperty      Boolean            @default(false)
+  otherPropertyLocation  OtherPropertyLocation?
+  otherPropertyWhere     String?
+  otherPropertyKind      OtherPropertyKind?
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model HouseholdVehicle {
+  id          String      @id @default(cuid())
+  householdId String
+  vehicleType VehicleType
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 }
@@ -387,6 +514,11 @@ model GeneralInfo {
   hasCancer              Boolean  @default(false)
   hasHealthInsurance     Boolean  @default(false)
   insuranceProvider      InsuranceProvider?
+
+  receivesSupport        Boolean  @default(false)
+  supportKafalaOrphan    Boolean  @default(false)
+  supportZakatDiwan      Boolean  @default(false)
+  supportSocialWelfare   Boolean  @default(false)
 
   household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
 }

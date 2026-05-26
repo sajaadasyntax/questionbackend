@@ -29,7 +29,15 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     }
 
     const token = jwt.sign(
-      { userId: user.id, role: user.role, username: user.username },
+      {
+        userId: user.id,
+        role: user.role,
+        username: user.username,
+        scopeLocalityId: user.scopeLocalityId ?? undefined,
+        scopeAdminUnitId: user.scopeAdminUnitId ?? undefined,
+        scopeVillageId: user.scopeVillageId ?? undefined,
+        scopeNeighborhoodId: user.scopeNeighborhoodId ?? undefined,
+      },
       process.env.JWT_SECRET!,
       { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as unknown as number }
     );

@@ -1,16 +1,37 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma';
 import { authenticate, requireRole } from '../middleware/auth';
+import { buildScopeWhere } from '../lib/scopeFilter';
 import * as XLSX from 'xlsx';
 
 const router = Router();
-router.use(authenticate, requireRole('ADMIN'));
+router.use(authenticate, requireRole('ADMIN', 'LOCALITY_MANAGER', 'ADMIN_UNIT_MANAGER', 'VILLAGE_MANAGER', 'NEIGHBORHOOD_MANAGER'));
 
-function buildWhere(q: Record<string, string>) {
-  const where: Record<string, unknown> = {};
+const NEIGHBORHOOD_INCLUDE = {
+  neighborhood: {
+    include: {
+      village: {
+        include: { administrativeUnit: { include: { locality: true } } },
+      },
+    },
+  },
+} as const;
 
-  if (q.localityId) where.village = { localityId: q.localityId };
-  if (q.villageId) where.villageId = q.villageId;
+function buildWhere(q: Record<string, string>, user: { role: string; scopeLocalityId?: string; scopeAdminUnitId?: string; scopeVillageId?: string; scopeNeighborhoodId?: string }) {
+  const where: Record<string, unknown> = buildScopeWhere(user as Parameters<typeof buildScopeWhere>[0]);
+
+  if (q.localityId) {
+    where.neighborhood = { village: { administrativeUnit: { localityId: q.localityId } } };
+  }
+  if (q.administrativeUnitId) {
+    where.neighborhood = { village: { administrativeUnitId: q.administrativeUnitId } };
+  }
+  if (q.villageId) {
+    where.neighborhood = { villageId: q.villageId };
+  }
+  if (q.neighborhoodId) {
+    where.neighborhoodId = q.neighborhoodId;
+  }
   if (q.collectedById) where.collectedById = q.collectedById;
 
   if (q.dateFrom || q.dateTo) {
@@ -20,48 +41,15 @@ function buildWhere(q: Record<string, string>) {
     };
   }
 
-  if (q.isMigrant !== undefined) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      isMigrant: q.isMigrant === 'true',
-    };
-  }
-  if (q.hasChronicCondition !== undefined) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      hasChronicCondition: q.hasChronicCondition === 'true',
-    };
-  }
-  if (q.hasDisability !== undefined) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      hasDisability: q.hasDisability === 'true',
-    };
-  }
-  if (q.hasCancer !== undefined) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      hasCancer: q.hasCancer === 'true',
-    };
-  }
-  if (q.hasHealthInsurance !== undefined) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      hasHealthInsurance: q.hasHealthInsurance === 'true',
-    };
-  }
-  if (q.homeStatus) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      homeStatus: q.homeStatus,
-    };
-  }
-  if (q.insuranceProvider) {
-    where.generalInfo = {
-      ...((where.generalInfo as object) || {}),
-      insuranceProvider: q.insuranceProvider,
-    };
-  }
+  const gi = (where.generalInfo as Record<string, unknown>) || {};
+  if (q.isMigrant !== undefined) gi.isMigrant = q.isMigrant === 'true';
+  if (q.hasChronicCondition !== undefined) gi.hasChronicCondition = q.hasChronicCondition === 'true';
+  if (q.hasDisability !== undefined) gi.hasDisability = q.hasDisability === 'true';
+  if (q.hasCancer !== undefined) gi.hasCancer = q.hasCancer === 'true';
+  if (q.hasHealthInsurance !== undefined) gi.hasHealthInsurance = q.hasHealthInsurance === 'true';
+  if (q.homeStatus) gi.homeStatus = q.homeStatus;
+  if (q.insuranceProvider) gi.insuranceProvider = q.insuranceProvider;
+  if (Object.keys(gi).length) where.generalInfo = gi;
 
   return where;
 }
@@ -69,12 +57,9 @@ function buildWhere(q: Record<string, string>) {
 router.get('/summary', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query as Record<string, string>;
-    const where = buildWhere(q);
+    const where = buildWhere(q, req.user!);
 
-    const [
-      totalHouseholds,
-      households,
-    ] = await Promise.all([
+    const [totalHouseholds, households] = await Promise.all([
       prisma.household.count({ where }),
       prisma.household.findMany({
         where,
@@ -90,13 +75,12 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
           reproductiveHealth: true,
           developmentalAssets: true,
           generalInfo: true,
-          village: { include: { locality: true } },
+          ...NEIGHBORHOOD_INCLUDE,
           collectedBy: { select: { id: true, name: true } },
         },
       }),
     ]);
 
-    // Aggregate numeric sums across all matching households
     function sumField<T>(arr: (T | null)[], field: keyof T): number {
       return arr.reduce((acc, item) => acc + (item ? Number(item[field]) || 0 : 0), 0);
     }
@@ -113,50 +97,19 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
     const assets = households.map((h) => h.developmentalAssets);
     const general = households.map((h) => h.generalInfo);
 
-    // Village breakdown
     const byVillage: Record<string, { name: string; locality: string; count: number }> = {};
     for (const h of households) {
-      const vid = h.villageId;
+      const village = h.neighborhood.village;
+      const vid = village.id;
       if (!byVillage[vid]) {
         byVillage[vid] = {
-          name: h.village.name,
-          locality: h.village.locality.name,
+          name: village.name,
+          locality: village.administrativeUnit.locality.name,
           count: 0,
         };
       }
       byVillage[vid].count++;
     }
-
-    // Water source breakdown
-    const waterSources = {
-      publicNetwork: sumField(water, 'publicNetwork'),
-      indoorTank: sumField(water, 'indoorTank'),
-      outdoorTank: sumField(water, 'outdoorTank'),
-      hafir: sumField(water, 'hafir'),
-      well: sumField(water, 'well'),
-      otherSource: sumField(water, 'otherSource'),
-      hasEnoughWater: sumField(water, 'hasEnoughWater'),
-    };
-
-    // Toilet type breakdown
-    const toiletTypes = {
-      noToilet: sumField(housing, 'noToilet'),
-      basicPit: sumField(housing, 'basicPitToilet'),
-      improvedPit: sumField(housing, 'improvedPitToilet'),
-      siphon: sumField(housing, 'siphonToilet'),
-      other: sumField(housing, 'otherToilet'),
-    };
-
-    // General info aggregates
-    const migrantCount = general.filter((g) => g?.isMigrant).length;
-    const beforeWarCount = general.filter((g) => g?.migrationTiming === 'BEFORE_WAR').length;
-    const afterWarCount = general.filter((g) => g?.migrationTiming === 'AFTER_WAR').length;
-    const chronicCount = general.filter((g) => g?.hasChronicCondition).length;
-    const disabilityCount = general.filter((g) => g?.hasDisability).length;
-    const cancerCount = general.filter((g) => g?.hasCancer).length;
-    const insuredCount = general.filter((g) => g?.hasHealthInsurance).length;
-    const ownedCount = general.filter((g) => g?.homeStatus === 'OWNED').length;
-    const rentedCount = general.filter((g) => g?.homeStatus === 'RENTED').length;
 
     res.json({
       totalHouseholds,
@@ -164,6 +117,7 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
         totalPopulationMale: sumField(demographics, 'totalPopulationMale'),
         totalPopulationFemale: sumField(demographics, 'totalPopulationFemale'),
         householdCount: sumField(demographics, 'householdCount'),
+        totalFamilyMembers: sumField(demographics, 'totalFamilyMembers'),
         childrenUnder5: sumField(demographics, 'childrenUnder5Male') + sumField(demographics, 'childrenUnder5Female'),
         womenReproductive: sumField(demographics, 'womenReproductive15to49'),
         elderlyOver70: sumField(demographics, 'elderlyOver70Male') + sumField(demographics, 'elderlyOver70Female'),
@@ -178,9 +132,21 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
         illiterateMale: sumField(education, 'illiterateMale'),
         illiterateFemale: sumField(education, 'illiterateFemale'),
       },
-      water: waterSources,
+      water: {
+        publicNetwork: sumField(water, 'publicNetwork'),
+        indoorTank: sumField(water, 'indoorTank'),
+        outdoorTank: sumField(water, 'outdoorTank'),
+        hafir: sumField(water, 'hafir'),
+        well: sumField(water, 'well'),
+        otherSource: sumField(water, 'otherSource'),
+        hasEnoughWater: sumField(water, 'hasEnoughWater'),
+      },
       housing: {
-        ...toiletTypes,
+        noToilet: sumField(housing, 'noToilet'),
+        basicPit: sumField(housing, 'basicPitToilet'),
+        improvedPit: sumField(housing, 'improvedPitToilet'),
+        siphon: sumField(housing, 'siphonToilet'),
+        other: sumField(housing, 'otherToilet'),
         properWasteDisposal: sumField(housing, 'properWasteDisposal'),
       },
       agriculture: {
@@ -230,15 +196,16 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
         vehicle: sumField(assets, 'vehicle'),
       },
       generalInfo: {
-        migrantCount,
-        beforeWarCount,
-        afterWarCount,
-        chronicCount,
-        disabilityCount,
-        cancerCount,
-        insuredCount,
-        ownedCount,
-        rentedCount,
+        migrantCount: general.filter((g) => g?.isMigrant).length,
+        beforeWarCount: general.filter((g) => g?.migrationTiming === 'BEFORE_WAR').length,
+        afterWarCount: general.filter((g) => g?.migrationTiming === 'AFTER_WAR').length,
+        chronicCount: general.filter((g) => g?.hasChronicCondition).length,
+        disabilityCount: general.filter((g) => g?.hasDisability).length,
+        cancerCount: general.filter((g) => g?.hasCancer).length,
+        insuredCount: general.filter((g) => g?.hasHealthInsurance).length,
+        ownedCount: general.filter((g) => g?.homeStatus === 'OWNED').length,
+        rentedCount: general.filter((g) => g?.homeStatus === 'RENTED').length,
+        supportCount: general.filter((g) => g?.receivesSupport).length,
       },
       byVillage: Object.values(byVillage),
     });
@@ -250,7 +217,7 @@ router.get('/summary', async (req: Request, res: Response, next: NextFunction) =
 router.get('/households', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query as Record<string, string>;
-    const where = buildWhere(q);
+    const where = buildWhere(q, req.user!);
     const { page = '1', limit = '50' } = q;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -259,7 +226,7 @@ router.get('/households', async (req: Request, res: Response, next: NextFunction
       prisma.household.findMany({
         where,
         include: {
-          village: { include: { locality: true } },
+          ...NEIGHBORHOOD_INCLUDE,
           collectedBy: { select: { id: true, name: true } },
           generalInfo: true,
           waterInfo: true,
@@ -281,12 +248,12 @@ router.get('/households', async (req: Request, res: Response, next: NextFunction
 router.get('/export', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const q = req.query as Record<string, string>;
-    const where = buildWhere(q);
+    const where = buildWhere(q, req.user!);
 
     const households = await prisma.household.findMany({
       where,
       include: {
-        village: { include: { locality: true } },
+        ...NEIGHBORHOOD_INCLUDE,
         collectedBy: { select: { name: true } },
         demographicInfo: true,
         educationInfo: true,
@@ -303,25 +270,35 @@ router.get('/export', async (req: Request, res: Response, next: NextFunction) =>
       orderBy: { surveyDate: 'desc' },
     });
 
-    const rows = households.map((h) => ({
-      'المحلية': h.village.locality.name,
-      'القرية': h.village.name,
-      'رب الأسرة': h.headOfFamilyName,
-      'تاريخ المسح': h.surveyDate.toLocaleDateString('ar-SA'),
-      'جامع البيانات': h.collectedBy.name,
-      'إجمالي السكان (ذكور)': h.demographicInfo?.totalPopulationMale ?? 0,
-      'إجمالي السكان (إناث)': h.demographicInfo?.totalPopulationFemale ?? 0,
-      'مصدر المياه - شبكة عامة': h.waterInfo?.publicNetwork ?? 0,
-      'مصدر المياه - بئر': h.waterInfo?.well ?? 0,
-      'مرحاض - حفرة عادية': h.housingInfo?.basicPitToilet ?? 0,
-      'وافد': h.generalInfo?.isMigrant ? 'نعم' : 'لا',
-      'وضع السكن': h.generalInfo?.homeStatus === 'OWNED' ? 'ملك' : h.generalInfo?.homeStatus === 'RENTED' ? 'مستأجر' : '-',
-      'مرض مزمن': h.generalInfo?.hasChronicCondition ? 'نعم' : 'لا',
-      'إعاقة': h.generalInfo?.hasDisability ? 'نعم' : 'لا',
-      'تأمين صحي': h.generalInfo?.hasHealthInsurance ? 'نعم' : 'لا',
-      'عدد الحوامل': h.reproductiveHealth?.pregnantCount ?? 0,
-      'الولادات العام الماضي': h.reproductiveHealth?.deliveriesLastYear ?? 0,
-    }));
+    const rows = households.map((h) => {
+      const village = h.neighborhood.village;
+      const locality = village.administrativeUnit.locality;
+      return {
+        'المحلية': locality.name,
+        'الوحدة الإدارية': village.administrativeUnit.name,
+        'القرية': village.name,
+        'الحي': h.neighborhood.name,
+        'رب الأسرة': h.headOfFamilyName,
+        'تاريخ المسح': h.surveyDate.toLocaleDateString('ar-SA'),
+        'جامع البيانات': h.collectedBy.name,
+        'العدد الكلي للأسرة': h.demographicInfo?.totalFamilyMembers ?? 0,
+        'إجمالي السكان (ذكور)': h.demographicInfo?.totalPopulationMale ?? 0,
+        'إجمالي السكان (إناث)': h.demographicInfo?.totalPopulationFemale ?? 0,
+        'مصدر المياه - شبكة عامة': h.waterInfo?.publicNetwork ?? 0,
+        'مصدر المياه - بئر': h.waterInfo?.well ?? 0,
+        'نوع السكن': h.housingInfo?.housingType ?? '-',
+        'نوع الملكية': h.housingInfo?.ownershipType ?? '-',
+        'مرحاض - حفرة عادية': h.housingInfo?.basicPitToilet ?? 0,
+        'وافد': h.generalInfo?.isMigrant ? 'نعم' : 'لا',
+        'وضع السكن': h.generalInfo?.homeStatus === 'OWNED' ? 'ملك' : h.generalInfo?.homeStatus === 'RENTED' ? 'مستأجر' : '-',
+        'مرض مزمن': h.generalInfo?.hasChronicCondition ? 'نعم' : 'لا',
+        'إعاقة': h.generalInfo?.hasDisability ? 'نعم' : 'لا',
+        'تأمين صحي': h.generalInfo?.hasHealthInsurance ? 'نعم' : 'لا',
+        'دعم منتظم': h.generalInfo?.receivesSupport ? 'نعم' : 'لا',
+        'عدد الحوامل': h.reproductiveHealth?.pregnantCount ?? 0,
+        'الولادات العام الماضي': h.reproductiveHealth?.deliveriesLastYear ?? 0,
+      };
+    });
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);

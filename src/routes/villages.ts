@@ -8,15 +8,19 @@ router.use(authenticate);
 
 const villageSchema = z.object({
   name: z.string().min(1, 'اسم القرية مطلوب'),
-  localityId: z.string().min(1, 'المحلية مطلوبة'),
+  administrativeUnitId: z.string().min(1, 'الوحدة الإدارية مطلوبة'),
 });
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { localityId } = req.query;
+    const { administrativeUnitId, localityId } = req.query;
+    const where: Record<string, unknown> = {};
+    if (administrativeUnitId) where.administrativeUnitId = administrativeUnitId as string;
+    if (localityId) where.administrativeUnit = { localityId: localityId as string };
+
     const villages = await prisma.village.findMany({
-      where: localityId ? { localityId: localityId as string } : undefined,
-      include: { locality: true },
+      where,
+      include: { administrativeUnit: { include: { locality: true } } },
       orderBy: { name: 'asc' },
     });
     res.json(villages);
@@ -30,7 +34,7 @@ router.post('/', requireRole('ADMIN'), async (req: Request, res: Response, next:
     const data = villageSchema.parse(req.body);
     const village = await prisma.village.create({
       data,
-      include: { locality: true },
+      include: { administrativeUnit: { include: { locality: true } } },
     });
     res.status(201).json(village);
   } catch (err) {
@@ -44,7 +48,7 @@ router.put('/:id', requireRole('ADMIN'), async (req: Request, res: Response, nex
     const village = await prisma.village.update({
       where: { id: req.params.id as string },
       data,
-      include: { locality: true },
+      include: { administrativeUnit: { include: { locality: true } } },
     });
     res.json(village);
   } catch (err) {

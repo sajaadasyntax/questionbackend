@@ -38,12 +38,26 @@ async function main() {
   });
   console.log(`✅ تم إنشاء المحلية: ${locality.name}`);
 
-  const village = await prisma.village.upsert({
-    where: { name_localityId: { name: 'قرية كنور قبلي', localityId: locality.id } },
+  const adminUnit = await prisma.administrativeUnit.upsert({
+    where: { name_localityId: { name: 'الوحدة الافتراضية', localityId: locality.id } },
     update: {},
-    create: { name: 'قرية كنور قبلي', localityId: locality.id },
+    create: { name: 'الوحدة الافتراضية', localityId: locality.id },
+  });
+  console.log(`✅ تم إنشاء الوحدة الإدارية: ${adminUnit.name}`);
+
+  const village = await prisma.village.upsert({
+    where: { name_administrativeUnitId: { name: 'قرية كنور قبلي', administrativeUnitId: adminUnit.id } },
+    update: {},
+    create: { name: 'قرية كنور قبلي', administrativeUnitId: adminUnit.id },
   });
   console.log(`✅ تم إنشاء القرية: ${village.name}`);
+
+  const neighborhood = await prisma.neighborhood.upsert({
+    where: { name_villageId: { name: 'الحي الرئيسي', villageId: village.id } },
+    update: {},
+    create: { name: 'الحي الرئيسي', villageId: village.id },
+  });
+  console.log(`✅ تم إنشاء الحي: ${neighborhood.name}`);
 
   console.log('\n✅ تمت تهيئة قاعدة البيانات بنجاح!');
   console.log('بيانات الدخول:');
